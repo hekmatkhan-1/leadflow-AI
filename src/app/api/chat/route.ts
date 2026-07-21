@@ -62,35 +62,35 @@ const SYSTEM_PROMPT = `You are a professional lead qualification assistant for a
 // ---------------------------------------------------------------------------
 const MOCK_RESPONSES: { trigger: string; reply: string }[] = [
   {
-    trigger: "initial",
+    trigger: "greeting",
     reply: "Hi there! 👋 Thanks for stopping by. I'd love to learn more about what brings you here today. What's your name?",
   },
   {
-    trigger: "name",
+    trigger: "ask_email",
     reply: "Great to meet you! And what's the best email address to reach you at?",
   },
   {
-    trigger: "email",
+    trigger: "ask_phone",
     reply: "Thanks! And do you have a phone number where we could follow up if needed?",
   },
   {
-    trigger: "phone",
+    trigger: "ask_company",
     reply: "What company are you with? And what industry do you operate in?",
   },
   {
-    trigger: "company",
+    trigger: "ask_budget",
     reply: "Interesting space! Could you give me a rough sense of your budget range for a solution like this?",
   },
   {
-    trigger: "budget",
+    trigger: "ask_timeline",
     reply: "Got it — and what's your timeline? Are you looking to move forward immediately, or is this more of a longer-term exploration?",
   },
   {
-    trigger: "timeline",
+    trigger: "ask_requirements",
     reply: "Last question — could you briefly describe your requirements or what you're hoping to achieve?",
   },
   {
-    trigger: "requirements",
+    trigger: "done",
     reply: "That's really helpful, thank you! I've captured all the key details. Someone from our team will follow up with you soon. Have a great day! 😊",
   },
   {
@@ -404,9 +404,11 @@ export async function POST(request: NextRequest) {
     if (isObjection && userMessageCount > 1) {
       reply = MOCK_RESPONSES.find((r) => r.trigger === "objection")!.reply;
     } else {
+      // Progress through qualification stages: greeting → ask_email → ask_phone → ...
       const stages = MOCK_RESPONSES.filter((r) => r.trigger !== "objection");
-      const stageIndex = Math.min(userMessageCount, stages.length - 1);
-      reply = stages[stageIndex].reply;
+      // First user message gets the greeting (index 0), second gets ask_email, etc.
+      const stageIndex = Math.min(userMessageCount - 1, stages.length - 1);
+      reply = stages[Math.max(0, stageIndex)].reply;
     }
   }
 
