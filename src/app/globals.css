@@ -24,12 +24,46 @@
   --color-secondary-900: #14532d;
 }
 
-/* Dark mode support via class strategy */
+/* ------------------------------------------------------------------ */
+/* Smooth scrolling */
+/* ------------------------------------------------------------------ */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ------------------------------------------------------------------ */
+/* Dark mode */
+/* ------------------------------------------------------------------ */
 .dark {
   color-scheme: dark;
 }
 
-/* Base scrollbar styling for the dashboard */
+html.dark {
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------------ */
+/* Theme transition — smooth color changes when toggling dark mode */
+/* ------------------------------------------------------------------ */
+*,
+*::before,
+*::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+/* Skip transitions for elements where it's jarring */
+input,
+textarea,
+select {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 150ms;
+}
+
+/* ------------------------------------------------------------------ */
+/* Custom scrollbar (desktop) */
+/* ------------------------------------------------------------------ */
 @media (min-width: 1024px) {
   ::-webkit-scrollbar {
     width: 6px;
@@ -49,11 +83,12 @@
   }
 }
 
-/* Smooth transitions for theme switching */
-html {
-  transition: color-scheme 0.2s ease;
-}
-
-html.dark {
-  color-scheme: dark;
+/* ------------------------------------------------------------------ */
+/* Utility: line-clamp fallback */
+/* ------------------------------------------------------------------ */
+.line-clamp-1 {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
