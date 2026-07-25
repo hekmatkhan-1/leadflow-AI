@@ -368,9 +368,17 @@ export default function LandingPage() {
               </Link>
             </div>
           </div>
-          <p className="mt-8 text-center text-xs text-gray-400 dark:text-gray-500">
-            &copy; {new Date().getFullYear()} LeadFlow AI. All rights reserved.
-          </p>
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 text-xs text-gray-400 dark:text-gray-500">
+            <p>&copy; {new Date().getFullYear()} LeadFlow AI. All rights reserved.</p>
+            <span className="hidden sm:inline">·</span>
+            <Link href="/legal/privacy" className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+              Privacy Policy
+            </Link>
+            <span className="hidden sm:inline">·</span>
+            <Link href="/legal/terms" className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+              Terms of Service
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

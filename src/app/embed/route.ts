@@ -203,6 +203,16 @@ function widgetCSS(): string {
   #lf-chat-input { background:#2d2d3f; border-color:#3d3d5c; color:#e5e7eb; }
   #lf-typing-indicator { background:#2d2d3f; }
 }
+
+#lf-chat-legal { text-align:center; padding:6px 12px; font-size:10px; color:#9ca3af; }
+#lf-chat-legal a { color:#9ca3af; text-decoration:none; }
+#lf-chat-legal a:hover { color:#6b7280; text-decoration:underline; }
+#lf-chat-legal span { margin:0 4px; }
+@media (prefers-color-scheme:dark) {
+  #lf-chat-legal { color:#6b7280; }
+  #lf-chat-legal a { color:#6b7280; }
+  #lf-chat-legal a:hover { color:#9ca3af; }
+}
 `.trim();
 }
 
@@ -441,9 +451,18 @@ function widgetJS(bid: string, preSettings: WidgetSettings): string {
       })
     ]);
 
+    // Legal links
+    var origin = window.location.origin || '';
+    var legal = el('div', { id: 'lf-chat-legal' }, [
+      el('a', { href: origin + '/legal/privacy', target: '_blank', innerHTML: 'Privacy' }),
+      el('span', { innerHTML: '·' }),
+      el('a', { href: origin + '/legal/terms', target: '_blank', innerHTML: 'Terms' })
+    ]);
+
     win.appendChild(header);
     win.appendChild(messages);
     win.appendChild(inputArea);
+    win.appendChild(legal);
     container.appendChild(bubble);
     container.appendChild(win);
 
