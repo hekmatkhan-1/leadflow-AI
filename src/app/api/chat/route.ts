@@ -2,13 +2,12 @@
  * Chat API endpoint — the core AI-powered lead qualification chatbot.
  *
  * Called from the embed widget (public, no auth required).
- * Accepts a conversation history, streams it through OpenAI (gpt-4o-mini),
+ * Accepts a conversation history, sends it through Mistral AI (mistral-small-latest),
  * extracts lead data, and persists the conversation in Supabase.
  *
- * Falls back to mock responses when OPENAI_API_KEY is not set.
+ * Falls back to mock responses when MISTRAL_API_KEY is not set.
  */
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -74,7 +73,7 @@ ERROR HANDLING:
 Never say "I think", "maybe", "probably" — instead ask clarifying questions or state what you know for certain.`;
 
 // ---------------------------------------------------------------------------
-// Mock response pool — used when OPENAI_API_KEY is missing
+// Mock response pool — used when MISTRAL_API_KEY is missing
 // ---------------------------------------------------------------------------
 const MOCK_RESPONSES: { trigger: string; reply: string }[] = [
   {
@@ -132,19 +131,16 @@ function extractLeadDataRegex(conversationText: string): LeadData {
     requirements: null,
   };
 
-  // Email pattern
   const emailMatch = conversationText.match(
     /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/,
   );
   if (emailMatch) data.email = emailMatch[0];
 
-  // Phone pattern (handles common formats)
   const phoneMatch = conversationText.match(
     /(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/,
   );
   if (phoneMatch) data.phone = phoneMatch[0];
 
-  // Name patterns — "my name is X", "I'm X", "this is X"
   const namePatterns = [
     /my name is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})/i,
     /i'm\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})(?:[,.]|\s+and|\s+from|\s+at|\s+with|\s+my|\s+i'|\s+i\b)/i,
@@ -158,7 +154,6 @@ function extractLeadDataRegex(conversationText: string): LeadData {
       break;
     }
   }
-  // Fallback: first user message that looks like a name (2 capital words, 4-20 chars each)
   if (!data.full_name) {
     const nameFallback = conversationText.match(
       /\b([A-Z][a-z]{2,15}\s+[A-Z][a-z]{2,15})\b/,
@@ -166,7 +161,6 @@ function extractLeadDataRegex(conversationText: string): LeadData {
     if (nameFallback) data.full_name = nameFallback[1];
   }
 
-  // Company
   const companyPatterns = [
     /(?:company|work at|work for|from)\s+(?:is\s+)?([A-Z][A-Za-z0-9\s&.,]{2,40}?)(?:[,.]|\s+and|\s+in\s|\s+we\s|\s+my\s|\s+i'|\s+i\b|\s+as\s)/i,
     /(?:at|with)\s+([A-Z][A-Za-z0-9&]{2,30}?)(?:[,.]|\s+and|\s+in\s|\s+we\s|\s+my\s|\s+i'|\s+i\b|\s+as\s)/i,
@@ -179,7 +173,6 @@ function extractLeadDataRegex(conversationText: string): LeadData {
     }
   }
 
-  // Industry
   const industryPatterns = [
     /(?:industry|sector|field)\s+(?:is\s+)?(?:in\s+)?(?:the\s+)?([A-Za-z\s]{3,30}?)(?:[,.]|\s+and|\s+we\s|\s+my\s|\s+i'|\s+i\b|\s+with\s)/i,
     /(?:in\s+the\s+)([A-Za-z\s]{3,30}?)\s+(?:industry|sector|field|space)/i,
@@ -192,19 +185,16 @@ function extractLeadDataRegex(conversationText: string): LeadData {
     }
   }
 
-  // Budget
   const budgetMatch = conversationText.match(
     /(?:budget|spend|invest(?:ing|ment)?|range|allocate|price)\s+(?:is\s+)?(?:around\s+)?(?:about\s+)?([^,.]+?(?:\d[^,.]*)?)/i,
   );
   if (budgetMatch) data.budget = budgetMatch[1].trim();
 
-  // Timeline
   const timelineMatch = conversationText.match(
     /(?:timeline|timeframe|when|looking to|plan(?:ning)? to|hoping to|need(?: this| it)?)\s+(?:is\s+)?(?:in\s+)?(?:the\s+)?(?:next\s+)?([^,.]+?(?:month|week|day|year|quarter|asap|immediately|soon|now)[^,.]*)/i,
   );
   if (timelineMatch) data.timeline = timelineMatch[1].trim();
 
-  // Requirements
   const requirementsPatterns = [
     /(?:requirements|looking for|need|want|hoping to|trying to)\s+(?:is\s+)?(?:a\s+)?([^,.]+?(?:solution|tool|platform|software|system|app|service|help|automate|manage|improve|increase|reduce|grow)[^,.]*)/i,
     /(?:requirements|looking for|need|want)\s+(?:is\s+)?(?:to\s+)?([^,.]{10,200}?)(?:[,.]|\s+that'?s\s|\s+my\s+email|\s+my\s+phone)/i,
@@ -220,25 +210,52 @@ function extractLeadDataRegex(conversationText: string): LeadData {
   return data;
 }
 
-/** Check whether enough lead data has been collected to mark the lead as complete. */
 function isLeadComplete(data: LeadData): boolean {
   const nonNullFields = Object.values(data).filter((v) => v !== null).length;
-  // Require name + email + at least 3 other fields
   return data.full_name !== null && data.email !== null && nonNullFields >= 5;
 }
 
 // ---------------------------------------------------------------------------
-// OpenAI-based lead extraction (structured output)
+// Mistral API helpers
 // ---------------------------------------------------------------------------
+const MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
+
+async function callMistralChat(
+  apiKey: string,
+  messages: { role: string; content: string }[],
+  jsonMode = false,
+): Promise<string> {
+  const res = await fetch(MISTRAL_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "mistral-small-latest",
+      temperature: jsonMode ? 0 : 0.7,
+      max_tokens: 300,
+      messages,
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Mistral API error ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
 async function extractLeadDataAI(
-  openai: OpenAI,
+  apiKey: string,
   conversationText: string,
 ): Promise<LeadData> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    temperature: 0,
-    max_tokens: 300,
-    messages: [
+  const raw = await callMistralChat(
+    apiKey,
+    [
       {
         role: "system",
         content: `Extract lead qualification data from this B2B sales conversation. Return ONLY a JSON object with these fields (use null if not found):
@@ -262,10 +279,9 @@ Rules:
       },
       { role: "user", content: conversationText },
     ],
-    response_format: { type: "json_object" },
-  });
+    true,
+  );
 
-  const raw = response.choices[0]?.message?.content ?? "{}";
   try {
     return JSON.parse(raw) as LeadData;
   } catch {
@@ -293,7 +309,6 @@ async function upsertConversation(params: {
   const { business_id, visitor_id, newMessages } = params;
   const adminClient = createAdminClient();
 
-  // Look for an existing active conversation for this visitor + business
   const { data: existing } = await adminClient
     .from("conversations")
     .select("id, messages")
@@ -305,7 +320,6 @@ async function upsertConversation(params: {
     .maybeSingle();
 
   if (existing) {
-    // Append new messages to the existing array
     const existingMessages = Array.isArray(existing.messages) ? existing.messages : [];
     await adminClient
       .from("conversations")
@@ -315,7 +329,6 @@ async function upsertConversation(params: {
       })
       .eq("id", existing.id);
   } else {
-    // Validate business_id exists
     const { data: business } = await adminClient
       .from("businesses")
       .select("id")
@@ -323,11 +336,9 @@ async function upsertConversation(params: {
       .maybeSingle();
 
     if (!business) {
-      // Silently skip storage for invalid business IDs
       return;
     }
 
-    // Create a new conversation
     await adminClient.from("conversations").insert({
       business_id,
       visitor_id,
@@ -341,7 +352,6 @@ async function upsertConversation(params: {
 // POST handler
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
-  // 1. Parse and validate the request body
   let body: unknown;
   try {
     body = await request.json();
@@ -362,51 +372,34 @@ export async function POST(request: NextRequest) {
 
   const { messages, visitor_id, business_id } = parsed.data;
 
-  // Build conversation text for lead extraction
   const conversationText = messages
     .map((m) => `[${m.role}]: ${m.content}`)
     .join("\n");
 
-  // 2. Initialize OpenAI client (if key is available)
-  const apiKey = process.env.OPENAI_API_KEY;
-  const hasOpenAI = !!apiKey && apiKey.startsWith("sk-");
-  const openai = hasOpenAI ? new OpenAI({ apiKey }) : null;
+  const apiKey = process.env.MISTRAL_API_KEY;
+  const hasMistral = !!apiKey && apiKey.length > 10;
 
-  // 3. Generate the assistant reply
   let reply: string;
 
-  if (openai) {
-    // --- OpenAI path ---
+  if (hasMistral) {
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        temperature: 0.7,
-        max_tokens: 300,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          ...messages.map((m) => ({
-            role: m.role as "user" | "assistant" | "system",
-            content: m.content,
-          })),
-        ],
-      });
-
-      reply =
-        completion.choices[0]?.message?.content ??
-        "I'm sorry, I'm having trouble responding right now. Could you try again?";
+      reply = await callMistralChat(apiKey!, [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+      ]);
+      if (!reply) {
+        reply = "I'm sorry, I'm having trouble responding right now. Could you try again?";
+      }
     } catch (error) {
-      console.error("OpenAI chat error:", error);
+      console.error("Mistral chat error:", error);
       reply =
         "I apologize, but I'm experiencing a temporary issue. Please try again in a moment, or feel free to leave your email and we'll reach out directly.";
     }
   } else {
-    // --- Mock fallback path ---
-    // Progress through mock stages based on conversation length
     const userMessageCount = messages.filter((m) => m.role === "user").length;
     const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
     const lastUserContent = lastUserMessage?.content?.toLowerCase() ?? "";
 
-    // Detect objections
     const objectionKeywords = [
       "just browsing",
       "just looking",
@@ -420,23 +413,19 @@ export async function POST(request: NextRequest) {
     if (isObjection && userMessageCount > 1) {
       reply = MOCK_RESPONSES.find((r) => r.trigger === "objection")!.reply;
     } else {
-      // Progress through qualification stages: greeting → ask_email → ask_phone → ...
       const stages = MOCK_RESPONSES.filter((r) => r.trigger !== "objection");
-      // First user message gets the greeting (index 0), second gets ask_email, etc.
       const stageIndex = Math.min(userMessageCount - 1, stages.length - 1);
       reply = stages[Math.max(0, stageIndex)].reply;
     }
   }
 
-  // 4. Extract lead data from the conversation
   let leadData: LeadData;
-  if (openai) {
+  if (hasMistral) {
     try {
-      // Combine existing conversation with the new reply for extraction
       const fullText = conversationText + `\n[assistant]: ${reply}`;
-      leadData = await extractLeadDataAI(openai, fullText);
+      leadData = await extractLeadDataAI(apiKey!, fullText);
     } catch (error) {
-      console.error("OpenAI extraction error:", error);
+      console.error("Mistral extraction error:", error);
       leadData = extractLeadDataRegex(conversationText);
     }
   } else {
@@ -445,13 +434,11 @@ export async function POST(request: NextRequest) {
 
   const complete = isLeadComplete(leadData);
 
-  // 5. Persist conversation in Supabase (if business_id is provided)
   if (business_id) {
     const timestamp = new Date().toISOString();
     const lastUserMsg = messages[messages.length - 1];
     const newMessages: { role: string; content: string; timestamp: string }[] = [];
 
-    // Only add the last user message + our reply to avoid duplicates
     if (lastUserMsg && lastUserMsg.role === "user") {
       newMessages.push(lastUserMsg);
     }
@@ -461,14 +448,12 @@ export async function POST(request: NextRequest) {
       await upsertConversation({ business_id, visitor_id, newMessages });
     } catch (error) {
       console.error("Supabase conversation storage error:", error);
-      // Non-fatal — response still succeeds even if storage fails
     }
   }
 
-  // 6. Return the formatted response
   return NextResponse.json({
     reply,
     lead_data: Object.values(leadData).some((v) => v !== null) ? leadData : null,
     is_complete: complete,
   });
-        }
+}
