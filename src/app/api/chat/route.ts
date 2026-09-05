@@ -2,11 +2,11 @@
  * Chat API endpoint — the core AI-powered lead qualification chatbot.
  *
  * Called from the embed widget (public, no auth required).
- * Accepts a conversation history, sends it through Mistral AI (mistral-small-latest),
- * extracts lead data, scores the lead, and persists both the lead and the
- * conversation in Supabase.
+ * Tries Mistral AI first; automatically falls back to Google Gemini if Mistral
+ * fails (e.g. rate limit). Extracts lead data, scores the lead, and persists
+ * both the lead and the conversation in Supabase.
  *
- * Falls back to mock responses when MISTRAL_API_KEY is not set.
+ * Falls back to mock responses if neither AI provider is available.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -74,8 +74,27 @@ ERROR HANDLING:
 
 Never say "I think", "maybe", "probably" — instead ask clarifying questions or state what you know for certain.`;
 
+const EXTRACTION_PROMPT = `Extract lead qualification data from this B2B sales conversation. Return ONLY a JSON object with these fields (use null if not found):
+{
+  "full_name": string | null,
+  "email": string | null,
+  "phone": string | null,
+  "company": string | null,
+  "industry": string | null,
+  "budget": string | null,
+  "timeline": string | null,
+  "requirements": string | null
+}
+
+Rules:
+- Only extract information that the visitor explicitly shared
+- Do not hallucinate or guess values
+- Email must match standard email format
+- For budget, capture the range or figure mentioned
+- Return valid JSON only, no markdown or commentary`;
+
 // ---------------------------------------------------------------------------
-// Mock response pool — used when MISTRAL_API_KEY is missing
+// Mock response pool — used when no AI provider is available
 // ---------------------------------------------------------------------------
 const MOCK_RESPONSES: { trigger: string; reply: string }[] = [
   {
@@ -117,10 +136,8 @@ const MOCK_RESPONSES: { trigger: string; reply: string }[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Lead extraction helpers
+// Lead extraction helpers (regex fallback)
 // ---------------------------------------------------------------------------
-
-/** Simple regex-based lead extraction from the full conversation text. */
 function extractLeadDataRegex(conversationText: string): LeadData {
   const data: LeadData = {
     full_name: null,
@@ -218,7 +235,7 @@ function isLeadComplete(data: LeadData): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Mistral API helpers
+// Mistral API helper
 // ---------------------------------------------------------------------------
 const MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
 
@@ -251,53 +268,73 @@ async function callMistralChat(
   return data.choices?.[0]?.message?.content ?? "";
 }
 
-async function extractLeadDataAI(
+// ---------------------------------------------------------------------------
+// Gemini API helper (fallback provider)
+// ---------------------------------------------------------------------------
+async function callGeminiChat(
   apiKey: string,
-  conversationText: string,
-): Promise<LeadData> {
-  const raw = await callMistralChat(
-    apiKey,
-    [
-      {
-        role: "system",
-        content: `Extract lead qualification data from this B2B sales conversation. Return ONLY a JSON object with these fields (use null if not found):
-{
-  "full_name": string | null,
-  "email": string | null,
-  "phone": string | null,
-  "company": string | null,
-  "industry": string | null,
-  "budget": string | null,
-  "timeline": string | null,
-  "requirements": string | null
+  messages: { role: string; content: string }[],
+  jsonMode = false,
+): Promise<string> {
+  const systemMsg = messages.find((m) => m.role === "system");
+  const conversationMsgs = messages.filter((m) => m.role !== "system");
+
+  const contents = conversationMsgs.map((m) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents,
+      ...(systemMsg
+        ? { systemInstruction: { parts: [{ text: systemMsg.content }] } }
+        : {}),
+      generationConfig: {
+        temperature: jsonMode ? 0 : 0.7,
+        maxOutputTokens: 300,
+        ...(jsonMode ? { responseMimeType: "application/json" } : {}),
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini API error ${res.status}: ${errText}`);
+  }
+
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 }
 
-Rules:
-- Only extract information that the visitor explicitly shared
-- Do not hallucinate or guess values
-- Email must match standard email format
-- For budget, capture the range or figure mentioned
-- Return valid JSON only, no markdown or commentary`,
-      },
-      { role: "user", content: conversationText },
-    ],
-    true,
-  );
-
-  try {
-    return JSON.parse(raw) as LeadData;
-  } catch {
-    return {
-      full_name: null,
-      email: null,
-      phone: null,
-      company: null,
-      industry: null,
-      budget: null,
-      timeline: null,
-      requirements: null,
-    };
+// ---------------------------------------------------------------------------
+// Unified AI call — tries Mistral first, falls back to Gemini on failure
+// ---------------------------------------------------------------------------
+async function callAI(
+  mistralKey: string | undefined,
+  geminiKey: string | undefined,
+  messages: { role: string; content: string }[],
+  jsonMode = false,
+): Promise<{ result: string; provider: string }> {
+  if (mistralKey) {
+    try {
+      const result = await callMistralChat(mistralKey, messages, jsonMode);
+      if (result) return { result, provider: "mistral" };
+    } catch (error) {
+      console.error("Mistral failed, trying Gemini fallback:", error);
+    }
   }
+
+  if (geminiKey) {
+    const result = await callGeminiChat(geminiKey, messages, jsonMode);
+    return { result, provider: "gemini" };
+  }
+
+  throw new Error("No AI provider available or all providers failed");
 }
 
 // ---------------------------------------------------------------------------
@@ -308,12 +345,11 @@ async function upsertLead(params: {
   leadData: LeadData;
 }): Promise<string | null> {
   const { business_id, leadData } = params;
-  if (!leadData.email) return null; // need at least an email to identify the lead
+  if (!leadData.email) return null;
 
   const adminClient = createAdminClient();
   const { score } = scoreLead(leadData);
 
-  // Look for an existing lead with this email for this business
   const { data: existing } = await adminClient
     .from("leads")
     .select("id")
@@ -382,7 +418,6 @@ async function upsertConversation(params: {
       .update({
         messages: [...existingMessages, ...newMessages],
         updated_at: new Date().toISOString(),
-        // Only set lead_id if it isn't already set and we now have one
         ...(lead_id && !existing.lead_id ? { lead_id } : {}),
       })
       .eq("id", existing.id);
@@ -435,22 +470,25 @@ export async function POST(request: NextRequest) {
     .map((m) => `[${m.role}]: ${m.content}`)
     .join("\n");
 
-  const apiKey = process.env.MISTRAL_API_KEY;
-  const hasMistral = !!apiKey && apiKey.length > 10;
+  const mistralKey = process.env.MISTRAL_API_KEY;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const hasAnyProvider = !!mistralKey || !!geminiKey;
 
   let reply: string;
 
-  if (hasMistral) {
+  if (hasAnyProvider) {
     try {
-      reply = await callMistralChat(apiKey!, [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ]);
-      if (!reply) {
-        reply = "I'm sorry, I'm having trouble responding right now. Could you try again?";
-      }
+      const { result } = await callAI(
+        mistralKey,
+        geminiKey,
+        [
+          { role: "system", content: SYSTEM_PROMPT },
+          ...messages.map((m) => ({ role: m.role, content: m.content })),
+        ],
+      );
+      reply = result || "I'm sorry, I'm having trouble responding right now. Could you try again?";
     } catch (error) {
-      console.error("Mistral chat error:", error);
+      console.error("All AI providers failed:", error);
       reply =
         "I apologize, but I'm experiencing a temporary issue. Please try again in a moment, or feel free to leave your email and we'll reach out directly.";
     }
@@ -479,12 +517,21 @@ export async function POST(request: NextRequest) {
   }
 
   let leadData: LeadData;
-  if (hasMistral) {
+  if (hasAnyProvider) {
     try {
       const fullText = conversationText + `\n[assistant]: ${reply}`;
-      leadData = await extractLeadDataAI(apiKey!, fullText);
+      const { result } = await callAI(
+        mistralKey,
+        geminiKey,
+        [
+          { role: "system", content: EXTRACTION_PROMPT },
+          { role: "user", content: fullText },
+        ],
+        true,
+      );
+      leadData = JSON.parse(result) as LeadData;
     } catch (error) {
-      console.error("Mistral extraction error:", error);
+      console.error("Lead extraction failed, using regex fallback:", error);
       leadData = extractLeadDataRegex(conversationText);
     }
   } else {
@@ -493,7 +540,6 @@ export async function POST(request: NextRequest) {
 
   const complete = isLeadComplete(leadData);
 
-  // Save lead + conversation to Supabase (if business_id is provided)
   let leadId: string | null = null;
   if (business_id) {
     try {
@@ -523,5 +569,4 @@ export async function POST(request: NextRequest) {
     lead_data: Object.values(leadData).some((v) => v !== null) ? leadData : null,
     is_complete: complete,
   });
-    }
-    
+}
