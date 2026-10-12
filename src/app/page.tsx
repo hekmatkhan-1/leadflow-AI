@@ -44,11 +44,18 @@ const features = [
   },
 ];
 
-const socialProof = [
-  { metric: "50K+", label: "Leads Qualified" },
-  { metric: "98%", label: "Uptime" },
+/*
+ * Capability highlights.
+ *
+ * Deliberately descriptive and free of quantitative claims: LeadFlow AI has no
+ * customers and no measured usage data yet, so we must not publish lead counts,
+ * uptime percentages, ratings, or testimonials we cannot verify. Keep every item
+ * here to a plain statement of what the product does.
+ */
+const capabilities = [
   { metric: "24/7", label: "Engagement" },
-  { metric: "4.9", label: "User Rating" },
+  { metric: "Instant", label: "Lead Qualification" },
+  { metric: "One Script", label: "Setup" },
 ];
 
 export default function LandingPage() {
@@ -136,11 +143,11 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ---------- Social proof ---------- */}
+      {/* ---------- Capabilities ---------- */}
       <section className="border-y border-gray-200 bg-white py-10 dark:border-gray-800 dark:bg-gray-950">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
-          <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
-            {socialProof.map((item) => (
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3">
+            {capabilities.map((item) => (
               <div key={item.label} className="text-center">
                 <p className="text-3xl font-extrabold text-gray-900 dark:text-white">
                   {item.metric}
