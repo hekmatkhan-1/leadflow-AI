@@ -2,11 +2,15 @@
  * Chat API endpoint — the core AI-powered lead qualification chatbot.
  *
  * Called from the embed widget (public, no auth required).
- * Accepts a conversation history, sends it through Mistral AI (mistral-small-latest),
- * extracts structured lead data, scores it with the rules engine in
- * `@/lib/scoring`, and persists the lead + conversation in Supabase.
+ * Uses OpenAI (gpt-4o-mini) for the conversational reply and for structured
+ * lead extraction (JSON mode). Extracts lead data, scores the lead with the
+ * deterministic rules engine, and persists both the lead and the conversation
+ * in Supabase.
  *
- * Falls back to mock responses when MISTRAL_API_KEY is not set.
+ * Degrades gracefully: mock scripted replies when OPENAI_API_KEY is missing,
+ * regex lead extraction when the extraction call fails, and a generic apology
+ * message when the chat call itself fails. Provider error details are only
+ * logged server-side and never returned to the visitor.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
@@ -76,7 +80,7 @@ ERROR HANDLING:
 Never say "I think", "maybe", "probably" — instead ask clarifying questions or state what you know for certain.`;
 
 // ---------------------------------------------------------------------------
-// Mock response pool — used when MISTRAL_API_KEY is missing
+// Mock response pool — used when OPENAI_API_KEY is missing
 // ---------------------------------------------------------------------------
 const MOCK_RESPONSES: { trigger: string; reply: string }[] = [
   {
@@ -117,16 +121,16 @@ const MOCK_RESPONSES: { trigger: string; reply: string }[] = [
   },
 ];
 
-/** Shown when Mistral returns an empty completion. */
+/** Shown when the provider returns an empty completion. */
 const MOCK_UNAVAILABLE_REPLY =
   "I'm sorry, I'm having trouble responding right now. Could you try again?";
 
-/** Shown when the Mistral call itself fails — never leaks technical details. */
+/** Shown when the OpenAI call itself fails — never leaks technical details. */
 const MOCK_ERROR_REPLY =
   "I apologize, but I'm experiencing a temporary issue. Please try again in a moment, or feel free to leave your email and we'll reach out directly.";
 
 /**
- * Deterministic scripted replies used when MISTRAL_API_KEY is not configured
+ * Deterministic scripted replies used when OPENAI_API_KEY is not configured
  * (local dev, preview deploys, CI) so the widget is always usable.
  */
 function pickMockReply(messages: { role: string; content: string }[]): string {
@@ -254,44 +258,62 @@ function isLeadComplete(data: LeadData): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Mistral API helpers
+// OpenAI API helpers
 // ---------------------------------------------------------------------------
-const MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
+const OPENAI_MODEL = "gpt-4o-mini";
 
-async function callMistralChat(
+/**
+ * Single low-level call to the OpenAI chat completions API.
+ * `jsonMode` enables OpenAI's JSON response format for extraction calls.
+ */
+async function callOpenAIChat(
   apiKey: string,
   messages: { role: string; content: string }[],
   jsonMode = false,
 ): Promise<string> {
-  const res = await fetch(MISTRAL_API_URL, {
+  const res = await fetch(OPENAI_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "mistral-small-latest",
+      model: OPENAI_MODEL,
+      messages,
       temperature: jsonMode ? 0 : 0.7,
       max_tokens: 300,
-      messages,
       ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
     }),
   });
 
   if (!res.ok) {
+    // Logged server-side only — never surfaced to the visitor.
     const errText = await res.text();
-    throw new Error(`Mistral API error ${res.status}: ${errText}`);
+    throw new Error(`OpenAI API error ${res.status}: ${errText}`);
   }
 
   const data = await res.json();
   return data.choices?.[0]?.message?.content ?? "";
 }
 
+const EMPTY_LEAD_DATA: LeadData = {
+  full_name: null,
+  email: null,
+  phone: null,
+  company: null,
+  industry: null,
+  budget: null,
+  timeline: null,
+  requirements: null,
+};
+
+/** Structured lead extraction via OpenAI JSON mode. */
 async function extractLeadDataAI(
   apiKey: string,
   conversationText: string,
 ): Promise<LeadData> {
-  const raw = await callMistralChat(
+  const raw = await callOpenAIChat(
     apiKey,
     [
       {
@@ -321,18 +343,20 @@ Rules:
   );
 
   try {
-    return JSON.parse(raw) as LeadData;
-  } catch {
+    const parsed = JSON.parse(raw) as Partial<LeadData>;
+    // Only keep known fields, coerced to string | null
     return {
-      full_name: null,
-      email: null,
-      phone: null,
-      company: null,
-      industry: null,
-      budget: null,
-      timeline: null,
-      requirements: null,
+      full_name: parsed.full_name ?? null,
+      email: parsed.email ?? null,
+      phone: parsed.phone ?? null,
+      company: parsed.company ?? null,
+      industry: parsed.industry ?? null,
+      budget: parsed.budget ?? null,
+      timeline: parsed.timeline ?? null,
+      requirements: parsed.requirements ?? null,
     };
+  } catch {
+    return { ...EMPTY_LEAD_DATA };
   }
 }
 
@@ -488,20 +512,21 @@ export async function POST(request: NextRequest) {
     .map((m) => `[${m.role}]: ${m.content}`)
     .join("\n");
 
-  const apiKey = process.env.MISTRAL_API_KEY;
-  const hasMistral = Boolean(apiKey && apiKey.trim().length > 10);
+  const apiKey = process.env.OPENAI_API_KEY;
+  // Treat an empty / placeholder key as "not configured" -> mock replies.
+  const hasOpenAI = Boolean(apiKey && apiKey.trim().length > 10);
 
   // ---- 1. Generate the assistant reply ------------------------------------
   let reply: string;
-  if (hasMistral) {
+  if (hasOpenAI) {
     try {
-      reply = await callMistralChat(apiKey!, [
+      reply = await callOpenAIChat(apiKey!, [
         { role: "system", content: SYSTEM_PROMPT },
         ...messages.map((m) => ({ role: m.role, content: m.content })),
       ]);
       if (!reply) reply = MOCK_UNAVAILABLE_REPLY;
     } catch (error) {
-      console.error("Mistral chat error:", error);
+      console.error("OpenAI chat error:", error);
       reply = MOCK_ERROR_REPLY;
     }
   } else {
@@ -510,14 +535,14 @@ export async function POST(request: NextRequest) {
 
   // ---- 2. Extract structured lead data -----------------------------------
   let leadData: LeadData;
-  if (hasMistral) {
+  if (hasOpenAI) {
     try {
       leadData = await extractLeadDataAI(
         apiKey!,
         `${conversationText}\n[assistant]: ${reply}`,
       );
     } catch (error) {
-      console.error("Mistral extraction error:", error);
+      console.error("OpenAI extraction error:", error);
       leadData = extractLeadDataRegex(conversationText);
     }
   } else {
