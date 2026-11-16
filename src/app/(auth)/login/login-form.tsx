@@ -8,8 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { loginAction, forgotPasswordAction } from "@/app/(auth)/actions";
+import { ACCOUNTS_CLOSED_MESSAGE } from "@/lib/auth-availability";
 
-export function LoginForm() {
+export function LoginForm({
+  accountsAvailable,
+}: {
+  accountsAvailable: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect") || "/dashboard";
@@ -20,12 +25,23 @@ export function LoginForm() {
   const formRef = useRef<HTMLFormElement>(null);
 
   async function handleLogin(formData: FormData) {
+    // Signing in is impossible while the auth backend is unreachable.
+    if (!accountsAvailable) {
+      setErrors({ form: ACCOUNTS_CLOSED_MESSAGE });
+      return;
+    }
+
     setIsLoading(true);
     setErrors({});
 
     formData.append("redirectTo", redirectTo);
 
-    const result = await loginAction(formData);
+    let result: { error?: string } | undefined;
+    try {
+      result = await loginAction(formData);
+    } catch {
+      result = { error: ACCOUNTS_CLOSED_MESSAGE };
+    }
 
     if (result?.error) {
       setErrors({ form: result.error });
@@ -36,10 +52,20 @@ export function LoginForm() {
   }
 
   async function handleForgotPassword(formData: FormData) {
+    if (!accountsAvailable) {
+      setErrors({ form: ACCOUNTS_CLOSED_MESSAGE });
+      return;
+    }
+
     setIsLoading(true);
     setErrors({});
 
-    const result = await forgotPasswordAction(formData);
+    let result: { error?: string; success?: string } | undefined;
+    try {
+      result = await forgotPasswordAction(formData);
+    } catch {
+      result = { error: ACCOUNTS_CLOSED_MESSAGE };
+    }
 
     if (result?.error) {
       setErrors({ form: result.error });
@@ -83,6 +109,7 @@ export function LoginForm() {
                 label="Email address"
                 placeholder="you@company.com"
                 required
+                disabled={!accountsAvailable}
                 autoComplete="email"
               />
               {errors.form && (
@@ -93,7 +120,12 @@ export function LoginForm() {
             </CardContent>
 
             <CardFooter className="flex flex-col gap-3">
-              <Button type="submit" className="w-full" isLoading={isLoading}>
+              <Button
+                type="submit"
+                className="w-full"
+                isLoading={isLoading}
+                disabled={!accountsAvailable}
+              >
                 Send reset link
               </Button>
               <button
@@ -115,6 +147,16 @@ export function LoginForm() {
             className="flex flex-col gap-4"
           >
             <CardContent className="flex flex-col gap-4 pt-6">
+              {!accountsAvailable && (
+                <div
+                  role="status"
+                  className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+                >
+                  <p className="font-medium">Accounts aren&apos;t open yet</p>
+                  <p className="mt-1">{ACCOUNTS_CLOSED_MESSAGE}</p>
+                </div>
+              )}
+
               <Input
                 id="email"
                 name="email"
@@ -122,6 +164,7 @@ export function LoginForm() {
                 label="Email address"
                 placeholder="you@company.com"
                 required
+                disabled={!accountsAvailable}
                 autoComplete="email"
               />
 
@@ -133,6 +176,7 @@ export function LoginForm() {
                   label="Password"
                   placeholder="••••••••"
                   required
+                  disabled={!accountsAvailable}
                   autoComplete="current-password"
                 />
                 <div className="mt-1 text-right">
@@ -157,8 +201,13 @@ export function LoginForm() {
             </CardContent>
 
             <CardFooter className="flex flex-col gap-4">
-              <Button type="submit" className="w-full" isLoading={isLoading}>
-                Sign in
+              <Button
+                type="submit"
+                className="w-full"
+                isLoading={isLoading}
+                disabled={!accountsAvailable}
+              >
+                {accountsAvailable ? "Sign in" : "Sign-in not open yet"}
               </Button>
 
               <p className="text-center text-sm text-gray-500 dark:text-gray-400">

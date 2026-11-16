@@ -7,13 +7,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { signupAction } from "@/app/(auth)/actions";
+import { ACCOUNTS_CLOSED_MESSAGE } from "@/lib/auth-availability";
 
-export function SignupForm() {
+export function SignupForm({
+  accountsAvailable,
+}: {
+  accountsAvailable: boolean;
+}) {
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const formRef = useRef<HTMLFormElement>(null);
 
   async function handleSubmit(formData: FormData) {
+    // Accounts cannot be created while the auth backend is unreachable.
+    if (!accountsAvailable) {
+      setErrors({ form: ACCOUNTS_CLOSED_MESSAGE });
+      return;
+    }
+
     setIsLoading(true);
     setErrors({});
 
@@ -30,7 +41,12 @@ export function SignupForm() {
     // Remove confirmPassword — server action doesn't need it
     formData.delete("confirmPassword");
 
-    const result = await signupAction(formData);
+    let result: { error?: string } | undefined;
+    try {
+      result = await signupAction(formData);
+    } catch {
+      result = { error: ACCOUNTS_CLOSED_MESSAGE };
+    }
 
     if (result?.error) {
       setErrors({ form: result.error });
@@ -67,6 +83,18 @@ export function SignupForm() {
           className="flex flex-col gap-4"
         >
           <CardContent className="flex flex-col gap-4 pt-6">
+            {!accountsAvailable && (
+              <div
+                role="status"
+                className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
+              >
+                <p className="font-medium">Accounts aren&apos;t open yet</p>
+                <p className="mt-1">
+                  {ACCOUNTS_CLOSED_MESSAGE}
+                </p>
+              </div>
+            )}
+
             <Input
               id="fullName"
               name="fullName"
@@ -74,6 +102,7 @@ export function SignupForm() {
               label="Your name"
               placeholder="Sarah Johnson"
               required
+              disabled={!accountsAvailable}
               autoComplete="name"
             />
 
@@ -84,6 +113,7 @@ export function SignupForm() {
               label="Company name"
               placeholder="Acme Inc."
               required
+              disabled={!accountsAvailable}
               autoComplete="organization"
             />
 
@@ -94,6 +124,7 @@ export function SignupForm() {
               label="Email address"
               placeholder="you@company.com"
               required
+              disabled={!accountsAvailable}
               autoComplete="email"
             />
 
@@ -104,6 +135,7 @@ export function SignupForm() {
               label="Password"
               placeholder="••••••••"
               required
+              disabled={!accountsAvailable}
               autoComplete="new-password"
               minLength={8}
             />
@@ -115,6 +147,7 @@ export function SignupForm() {
               label="Confirm password"
               placeholder="••••••••"
               required
+              disabled={!accountsAvailable}
               autoComplete="new-password"
               error={errors.confirmPassword}
               minLength={8}
@@ -128,8 +161,13 @@ export function SignupForm() {
           </CardContent>
 
           <CardFooter className="flex flex-col gap-4">
-            <Button type="submit" className="w-full" isLoading={isLoading}>
-              Create account
+            <Button
+              type="submit"
+              className="w-full"
+              isLoading={isLoading}
+              disabled={!accountsAvailable}
+            >
+              {accountsAvailable ? "Create account" : "Signup not open yet"}
             </Button>
 
             <p className="text-center text-sm text-gray-500 dark:text-gray-400">

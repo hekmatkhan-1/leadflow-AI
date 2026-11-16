@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import type { User } from "@supabase/supabase-js";
 import { Sidebar } from "@/components/layout/sidebar";
 import { DashboardHeader } from "./header";
 
@@ -8,10 +9,16 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Supabase may be unreachable — that is the same as having no session, and
+  // must land on the login page rather than a crash.
+  let user: User | null = null;
+  try {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    user = null;
+  }
 
   if (!user) {
     redirect("/login");

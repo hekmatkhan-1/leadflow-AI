@@ -3,6 +3,21 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
+import {
+  ACCOUNTS_CLOSED_MESSAGE,
+  areAccountsAvailable,
+} from "@/lib/auth-availability";
+
+/**
+ * Only allow relative in-app paths as a post-login destination, so the
+ * `redirect` query param can't be used to bounce users off-site.
+ */
+function safeRedirectPath(value: string | null): string {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/dashboard";
+  }
+  return value;
+}
 
 // ---------------------------------------------------------------------------
 // Login
@@ -10,21 +25,31 @@ import { redirect } from "next/navigation";
 export async function loginAction(formData: FormData) {
   const email = formData.get("email") as string;
   const password = formData.get("password") as string;
-  const redirectTo = (formData.get("redirectTo") as string) || "/dashboard";
+  const redirectTo = safeRedirectPath(formData.get("redirectTo") as string | null);
 
   if (!email || !password) {
     return { error: "Email and password are required." };
   }
 
-  const supabase = await createClient();
+  // No reachable auth backend means no account can be signed into — say so
+  // instead of surfacing a network error.
+  if (!(await areAccountsAvailable())) {
+    return { error: ACCOUNTS_CLOSED_MESSAGE };
+  }
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  try {
+    const supabase = await createClient();
 
-  if (error) {
-    return { error: error.message };
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+  } catch {
+    return { error: ACCOUNTS_CLOSED_MESSAGE };
   }
 
   redirect(redirectTo);
@@ -47,40 +72,48 @@ export async function signupAction(formData: FormData) {
     return { error: "Password must be at least 8 characters." };
   }
 
-  const supabase = await createClient();
-
-  // 1. Create the auth user — store full_name + company_name in metadata
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: fullName, company_name: companyName },
-    },
-  });
-
-  if (error) {
-    return { error: error.message };
+  if (!(await areAccountsAvailable())) {
+    return { error: ACCOUNTS_CLOSED_MESSAGE };
   }
 
-  if (!data.user) {
-    return { error: "Failed to create account. Please try again." };
-  }
+  try {
+    const supabase = await createClient();
 
-  // 2. Insert the business row — use admin client to bypass RLS
-  //    (the user may not have a confirmed session yet)
-  const admin = createAdminClient();
-  const { error: businessError } = await admin.from("businesses").insert({
-    id: data.user.id,
-    company_name: companyName,
-    email,
-  });
+    // 1. Create the auth user — store full_name + company_name in metadata
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName, company_name: companyName },
+      },
+    });
 
-  if (businessError) {
-    // Clean up: delete the auth user since business creation failed
-    await admin.auth.admin.deleteUser(data.user.id);
-    return {
-      error: "Failed to set up your account. Please try again.",
-    };
+    if (error) {
+      return { error: error.message };
+    }
+
+    if (!data.user) {
+      return { error: "Failed to create account. Please try again." };
+    }
+
+    // 2. Insert the business row — use admin client to bypass RLS
+    //    (the user may not have a confirmed session yet)
+    const admin = createAdminClient();
+    const { error: businessError } = await admin.from("businesses").insert({
+      id: data.user.id,
+      company_name: companyName,
+      email,
+    });
+
+    if (businessError) {
+      // Clean up: delete the auth user since business creation failed
+      await admin.auth.admin.deleteUser(data.user.id);
+      return {
+        error: "Failed to set up your account. Please try again.",
+      };
+    }
+  } catch {
+    return { error: ACCOUNTS_CLOSED_MESSAGE };
   }
 
   redirect("/dashboard");
@@ -96,14 +129,22 @@ export async function forgotPasswordAction(formData: FormData) {
     return { error: "Email is required." };
   }
 
-  const supabase = await createClient();
+  if (!(await areAccountsAvailable())) {
+    return { error: ACCOUNTS_CLOSED_MESSAGE };
+  }
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
-  });
+  try {
+    const supabase = await createClient();
 
-  if (error) {
-    return { error: error.message };
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+  } catch {
+    return { error: ACCOUNTS_CLOSED_MESSAGE };
   }
 
   return { success: "Check your email for the password reset link." };
