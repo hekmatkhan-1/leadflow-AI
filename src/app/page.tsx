@@ -71,7 +71,7 @@ export default function LandingPage() {
               href="/signup"
               className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 px-3 py-2 text-xs font-medium text-white shadow-md shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-cyan-600 sm:px-4 sm:text-sm"
             >
-              Get Started Free
+              Get started
             </Link>
           </div>
         </div>
@@ -91,7 +91,7 @@ export default function LandingPage() {
               {/* Badge */}
               <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 sm:px-4 sm:text-sm dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300">
                 <Zap className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                AI-Powered Lead Qualification
+                Pre-launch · AI-Powered Lead Qualification
               </div>
             </FadeIn>
 
@@ -120,21 +120,22 @@ export default function LandingPage() {
                   href="/signup"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-cyan-600 hover:shadow-xl hover:shadow-blue-500/30 hover:-translate-y-0.5 sm:w-auto"
                 >
-                  Get Started Free
+                  Create free account
                   <ArrowRight className="h-5 w-5" />
                 </Link>
                 <Link
                   href="/login"
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-8 py-3.5 text-base font-semibold text-gray-700 shadow-sm transition-all hover:bg-gray-50 hover:-translate-y-0.5 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800 sm:w-auto"
                 >
-                  See it in action
+                  Sign in
                 </Link>
               </div>
             </FadeIn>
 
             <FadeIn delay={400}>
               <p className="mt-4 text-sm text-gray-400 dark:text-gray-500">
-                No credit card required · Free 50 leads/month
+                No credit card required · Free account while we are in
+                pre-launch
               </p>
             </FadeIn>
           </div>
@@ -309,18 +310,19 @@ export default function LandingPage() {
 
               <div className="relative">
                 <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                  Ready to capture more leads?
+                  Be one of our first users
                 </h2>
                 <p className="mx-auto mt-4 max-w-xl text-lg text-gray-300">
-                  Join hundreds of B2B teams using LeadFlow AI to qualify leads
-                  automatically. Start free — no credit card required.
+                  LeadFlow AI is pre-launch: we have no customers yet, and you
+                  would be among the first. Create a free account to try the
+                  product today — paid plans are not available yet.
                 </p>
                 <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
                   <Link
                     href="/signup"
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-400 px-8 py-3.5 text-base font-semibold text-gray-900 shadow-lg transition-all hover:from-blue-400 hover:to-cyan-300 hover:-translate-y-0.5 sm:w-auto"
                   >
-                    Get Started Free
+                    Create free account
                     <ArrowRight className="h-5 w-5" />
                   </Link>
                   <Link
