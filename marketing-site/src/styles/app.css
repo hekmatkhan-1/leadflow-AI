@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body {
+    @apply bg-white text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  /* Keep anchor targets clear of the sticky header. */
+  section[id] {
+    scroll-margin-top: 5rem;
+  }
+
+  /* Always show a keyboard focus ring, even where a component forgets one. */
+  :focus-visible {
+    outline: 2px solid var(--color-blue-500, #3b82f6);
+    outline-offset: 2px;
+  }
+}
