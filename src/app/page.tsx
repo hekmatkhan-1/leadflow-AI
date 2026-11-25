@@ -11,10 +11,50 @@ import {
 } from "lucide-react";
 import { ChatWidget } from "@/components/chat/chat-widget";
 import { FadeIn } from "@/components/fade-in";
+import { areAccountsAvailable } from "@/lib/auth-availability";
 
 // ---------------------------------------------------------------------------
 // Landing page — LeadFlow AI
 // ---------------------------------------------------------------------------
+
+// Account availability is probed per request, so this page cannot be
+// prerendered: a build-time snapshot would freeze the CTA copy forever.
+export const dynamic = "force-dynamic";
+
+/**
+ * Every piece of copy that mentions creating an account lives here, so the
+ * page tells the truth automatically: when the Supabase project behind auth
+ * starts answering, the original signup copy comes back on its own.
+ */
+function landingCopy(accountsAvailable: boolean) {
+  if (accountsAvailable) {
+    return {
+      navCta: "Get started",
+      heroCta: "Create free account",
+      heroNote: "No credit card required · Free account while we are in pre-launch",
+      closingTitle: "Be one of our first users",
+      closingBody:
+        "LeadFlow AI is pre-launch: we have no customers yet, and you would be among the first. Create a free account to try the product today — paid plans are not available yet.",
+      closingCta: "Create free account",
+      footerSignup: "Sign up",
+    };
+  }
+
+  // Accounts are closed: nothing here may promise an account that cannot be
+  // created. The CTAs still go somewhere useful — the signup page states the
+  // real status instead of pretending to work.
+  return {
+    navCta: "Launch status",
+    heroCta: "Check launch status",
+    heroNote:
+      "Accounts aren't open yet · signup is disabled until the database that stores accounts is connected",
+    closingTitle: "We're not taking signups yet",
+    closingBody:
+      "LeadFlow AI is pre-launch, and accounts aren't open yet. The product is built, but we're still connecting the database that stores accounts, so no account can be created or signed into today. When that is done, signup opens right here.",
+    closingCta: "Check launch status",
+    footerSignup: "Launch status",
+  };
+}
 
 const features = [
   {
@@ -46,7 +86,10 @@ const features = [
   },
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const accountsAvailable = await areAccountsAvailable();
+  const copy = landingCopy(accountsAvailable);
+
   return (
     <div className="flex min-h-screen flex-col">
       {/* ---------- Nav ---------- */}
@@ -69,9 +112,13 @@ export default function LandingPage() {
             </Link>
             <Link
               href="/signup"
-              className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 px-3 py-2 text-xs font-medium text-white shadow-md shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-cyan-600 sm:px-4 sm:text-sm"
+              className={`rounded-lg px-3 py-2 text-xs font-medium shadow-md transition-all sm:px-4 sm:text-sm ${
+                accountsAvailable
+                  ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-blue-500/25 hover:from-blue-700 hover:to-cyan-600"
+                  : "border border-gray-300 bg-white text-gray-700 shadow-transparent hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 dark:hover:bg-gray-800"
+              }`}
             >
-              Get started
+              {copy.navCta}
             </Link>
           </div>
         </div>
@@ -118,9 +165,13 @@ export default function LandingPage() {
               <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
                 <Link
                   href="/signup"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-cyan-600 hover:shadow-xl hover:shadow-blue-500/30 hover:-translate-y-0.5 sm:w-auto"
+                  className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3.5 text-base font-semibold shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl sm:w-auto ${
+                    accountsAvailable
+                      ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-blue-500/25 hover:from-blue-700 hover:to-cyan-600 hover:shadow-blue-500/30"
+                      : "bg-gray-900 text-white shadow-gray-900/20 hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-100"
+                  }`}
                 >
-                  Create free account
+                  {copy.heroCta}
                   <ArrowRight className="h-5 w-5" />
                 </Link>
                 <Link
@@ -134,8 +185,7 @@ export default function LandingPage() {
 
             <FadeIn delay={400}>
               <p className="mt-4 text-sm text-gray-400 dark:text-gray-500">
-                No credit card required · Free account while we are in
-                pre-launch
+                {copy.heroNote}
               </p>
             </FadeIn>
           </div>
@@ -310,19 +360,21 @@ export default function LandingPage() {
 
               <div className="relative">
                 <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
-                  Be one of our first users
+                  {copy.closingTitle}
                 </h2>
                 <p className="mx-auto mt-4 max-w-xl text-lg text-gray-300">
-                  LeadFlow AI is pre-launch: we have no customers yet, and you
-                  would be among the first. Create a free account to try the
-                  product today — paid plans are not available yet.
+                  {copy.closingBody}
                 </p>
                 <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
                   <Link
                     href="/signup"
-                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-400 px-8 py-3.5 text-base font-semibold text-gray-900 shadow-lg transition-all hover:from-blue-400 hover:to-cyan-300 hover:-translate-y-0.5 sm:w-auto"
+                    className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-8 py-3.5 text-base font-semibold shadow-lg transition-all hover:-translate-y-0.5 sm:w-auto ${
+                      accountsAvailable
+                        ? "bg-gradient-to-r from-blue-500 to-cyan-400 text-gray-900 hover:from-blue-400 hover:to-cyan-300"
+                        : "bg-white text-gray-900 hover:bg-gray-100"
+                    }`}
                   >
-                    Create free account
+                    {copy.closingCta}
                     <ArrowRight className="h-5 w-5" />
                   </Link>
                   <Link
@@ -361,7 +413,7 @@ export default function LandingPage() {
                 href="/signup"
                 className="transition-colors hover:text-gray-900 dark:hover:text-gray-200"
               >
-                Sign up
+                {copy.footerSignup}
               </Link>
             </div>
           </div>
