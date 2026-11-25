@@ -1,3 +1,25 @@
+> **Read first — this directory now launches the product app, not the marketing site.**
+>
+> Port 3000 is the team's one public surface and the machine's boot supervisor
+> decides what runs there with a single existence check:
+> `[ -f /home/team/shared/site/dist/server/server.js ]`. If that file is missing it
+> serves `/opt/team-site-template` (the stock "coming soon" placeholder) instead of
+> our product — which is exactly what happened after the last restart.
+>
+> Therefore:
+>
+> - `dist/server/server.js` is a **sentinel**, not a build artifact. It is a tiny
+>   ES module that only exists to satisfy that check. **Do not delete it** as junk;
+>   deleting it silently reverts the public URL to the placeholder on the next boot.
+> - `start` in `package.json` runs `/home/team/shared/start-app.sh`, which builds (if
+>   needed), frees port 3000 and starts `/home/team/shared/watchdog.sh`, which keeps
+>   the Next.js product app running and restarts it if it exits.
+> - `build` in `package.json` is a deliberate no-op (`echo`): the TanStack marketing
+>   build is retired and must not overwrite the sentinel or refill the disk.
+> - The marketing site's source is preserved here and in the repo at
+>   `marketing-site/`, so this decision stays reversible. Reversing it means
+>   restoring the real `start`/`build` scripts and running `bun run publish`.
+
 # Your site
 
 This is the team's website. It's a [TanStack Start](https://tanstack.com/start)

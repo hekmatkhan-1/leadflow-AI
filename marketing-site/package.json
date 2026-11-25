@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
-    "start": "bun run serve.ts",
+    "build": "echo \"build is a no-op: this directory only starts the LeadFlow product app (see SITE.md)\"",
+    "start": "bash /home/team/shared/start-app.sh",
     "publish": "bash ./publish.sh",
     "go-live": "bash ./go-live.sh",
     "format": "prettier --write ."
